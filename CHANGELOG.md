@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0] — 2026-09-21
+## [0.2.0] — 2026-09-21
 
 ### Added
 - First release. Runs a script body as MicroPython inside godo's WebAssembly
