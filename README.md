@@ -150,8 +150,22 @@ The script clones MicroPython at the WASI pull request, applies the three
 patches in `scripts/micropython-patches.diff`, freezes `src/godo_shim.py` and
 `os.path` into the binary, and runs the binaryen passes.
 
-Then put the printed digest in your `godo.yaml`. godo refuses an artifact whose
-bytes do not match.
+Then put the printed digest in your `godo.yaml` — or let
+`godo -e plugins install` do it, which is easier and cannot typo.
+
+### The build is not reproducible
+
+Two builds of the same source produce different bytes, and therefore different
+digests. MicroPython embeds its build date in its version string.
+
+So the digest says **"this is the artifact that was published"**, not "this is
+what the source produces". You cannot verify a release by rebuilding it and
+comparing. What the digest does give you is the thing that matters day to day:
+everyone on a team runs the same bytes, and a change to those bytes is a change
+to the file in git.
+
+If you would rather trust your own build than a release, build it and install
+from the local path. The flow is the same.
 
 ## How it works
 
@@ -164,6 +178,23 @@ request, builds the `godo` namespace, and executes your body. It is ordinary
 Python — readable, and testable outside wasm.
 
 Protocol: godo's [`docs/dev/plugin-protocol.md`](https://github.com/MY-RV/godo/blob/main/docs/dev/plugin-protocol.md).
+
+## Installing
+
+```bash
+# from a release
+godo -e plugins install https://github.com/MY-RV/godo-micropy/releases/download/v0.1.0/godo-micropy.wasm
+
+# or from a local build
+godo -e plugins install ./godo-micropy.wasm
+```
+
+Either writes the entry, with the digest, into your `godo.yaml`. A teammate who
+clones the repository runs `godo -e plugins install` with no arguments: it
+fetches what the catalog declares and refuses anything whose bytes do not match
+the committed digest.
+
+A complete catalog to copy: [`examples/godo.yaml`](./examples/godo.yaml).
 
 ## Licences
 

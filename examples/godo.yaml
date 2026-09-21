@@ -1,0 +1,67 @@
+# A catalog using godo-micropy. Copy it, then:
+#
+#   godo -e plugins install https://github.com/MY-RV/godo-micropy/releases/download/v0.1.0/godo-micropy.wasm
+#
+# That rewrites the plugins block below with the digest of what it actually
+# downloaded, so the placeholder here never has to be right.
+
+version: "0.1"
+
+engine:
+  dialect: matcher
+  plugins:
+    - source: https://github.com/MY-RV/godo-micropy/releases/download/v0.1.0/godo-micropy.wasm
+      sha256: "replace me — godo -e plugins install writes the real one"
+      provides: [runner:micropy]
+      config:
+        # Deny by default: what is not named here does not exist inside the
+        # sandbox. Grant the least that makes the scripts below work.
+        proc: {exec: true}
+        fs: {mount: true, slink: true}
+
+scripts:
+  # Shell scripts are unaffected: the runner is per script.
+  test: go test ./...
+
+  # Create a worktree, install deps, link .env from the repo root.
+  # Usage: godo worktree create wt/example ../wt-example
+  # @runner micropy
+  worktree create ${BRANCH} ${DIR}: |
+    import os
+
+    branch = godo.argv["BRANCH"]
+    wt = godo.argv["DIR"]
+    install = "--no-install" not in list(godo.args)
+
+    if not os.path.isfile(".env"):
+        raise Exception("no .env in the repo root; create it first")
+
+    godo.proc.exec(["git", "worktree", "add", "-b", branch, wt])
+
+    if install:
+        # check=False hands back the result instead of aborting, which is how
+        # you tolerate a failure. There is no try/except needed for a command.
+        r = godo.proc.exec(["npm", "install"], cwd=wt, check=False)
+        if not r.ok:
+            print(f"warning: npm exited {r.code}, carrying on without deps")
+
+    godo.fs.slink(".env", os.path.join(wt, ".env"))
+    print(f"worktree ready: {wt} ({branch})")
+
+  # Read a file, decide something, act. All of it is Python.
+  # @runner micropy
+  release check: |
+    import json
+
+    with open("package.json") as f:
+        pkg = json.load(f)
+
+    version = pkg.get("version", "")
+    if not version:
+        raise Exception("package.json has no version")
+
+    r = godo.proc.exec(["git", "tag", "--list", f"v{version}"], capture=True)
+    if r.stdout.strip():
+        raise Exception(f"v{version} is already tagged")
+
+    print(f"v{version} is free")
