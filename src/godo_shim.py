@@ -153,6 +153,41 @@ class Godo:
         self.runner = req.get("runner", "")
 
 
+# What this runner ships. Named so a failed import can say what is here
+# instead of only what is not.
+_AVAILABLE = "os, os.path, json, re, sys, io, time, collections, hashlib, binascii, struct"
+
+
+def _seal_imports():
+    """Leave the frozen stdlib importable and take the filesystem away.
+
+    A .godo.py is a script body, not a Python program — the way a Dockerfile
+    does not invoke another Dockerfile. Importing from disk half-works anyway:
+    a module gets its own globals, so `godo` is not defined there, and the
+    failure arrives in the middle of a run instead of at the top.
+
+    Closing it is the reversible direction. Opening it later breaks nothing;
+    taking it back once people have module trees is not possible. When a script
+    genuinely needs a program, it stays a program:
+
+        godo.proc.exec(["python3", "scripts/thing.py"])
+    """
+    sys.path.clear()
+    sys.path.append(".frozen")
+
+
+def _import_error(e):
+    """Say what is available, not only what is missing."""
+    name = str(e).split("'")[1] if "'" in str(e) else "?"
+    sys.stderr.write(
+        "ImportError: no module named '%s'\n"
+        "  godo-micropy ships: %s\n"
+        "  A script body cannot import from disk. For code that needs to, run\n"
+        "  it as a program: godo.proc.exec([\"python3\", \"path/to/it.py\"])\n"
+        % (name, _AVAILABLE)
+    )
+
+
 def main():
     req = _recv()
     if req.get("api") != _API:
@@ -162,11 +197,15 @@ def main():
         sys.exit(1)
 
     godo = Godo(req)
+    _seal_imports()
     g = {"godo": godo, "print": _print, "__name__": "__main__"}
     try:
         exec(req.get("body", ""), g)
     except SystemExit:
         raise
+    except ImportError as e:
+        _import_error(e)
+        sys.exit(1)
     except Exception as e:
         # Explicit: MicroPython's print_exception writes to stdout by default,
         # and stdout is the protocol. The traceback belongs on stderr, which

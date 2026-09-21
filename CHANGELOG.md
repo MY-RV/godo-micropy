@@ -11,6 +11,14 @@
   [pull request #13676](https://github.com/micropython/micropython/pull/13676)
   and not merged upstream. `scripts/build.sh` pins it.
 
+### Changed
+- **A script body cannot import from disk.** The frozen standard library stays;
+  a `.py` beside your `godo.yaml` does not. Importing half-worked — a module
+  has its own globals, so `godo` was undefined inside one — and a body is a
+  body, not a program. `godo.proc.exec(["python3", …])` is the way out, and
+  opening this later would break nothing.
+- A failed import says what the runner ships, not only what is missing.
+
 ### Fixed
 - `capture=True` on a command that printed nothing gave `None` instead of `""`.
   The wire omits an empty string, so the shim fills it back in: it knows what

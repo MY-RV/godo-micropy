@@ -99,6 +99,37 @@ silence is not the same as nothing captured.
 
 `raise` aborts with a traceback and exit 1.
 
+## A body is a body, not a program
+
+A script body cannot import from disk. The frozen standard library is there —
+`os`, `os.path`, `json`, `re`, `sys`, `io`, `time`, `collections`, `hashlib`,
+`binascii`, `struct` — and a `.py` file next to your `godo.yaml` is not.
+
+```
+ImportError: no module named 'helpers'
+  godo-micropy ships: os, os.path, json, re, …
+  A script body cannot import from disk. For code that needs to, run
+  it as a program: godo.proc.exec(["python3", "path/to/it.py"])
+```
+
+This is what the thing is, the way a Dockerfile does not invoke another
+Dockerfile. It is also the honest reading of what importing actually did: a
+module gets its own globals, so `godo` is not defined inside one, and the
+failure arrived halfway through a run rather than at the top. Half-working was
+worse than either answer.
+
+And it is the reversible direction. Opening this later breaks nothing; taking
+it back once people have module trees is not possible.
+
+When a script outgrows a body, it stays a program:
+
+```python
+godo.proc.exec(["python3", "scripts/migrate.py", godo.argv["ENV"]])
+```
+
+Cross-platform stops there, and that is the trade — this runner is not trying
+to be the language you write everything in.
+
 ## Capabilities
 
 The sandbox starts shut. With an empty `config`, measured from inside:
