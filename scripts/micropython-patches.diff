@@ -1,0 +1,45 @@
+diff --git a/ports/unix/main.c b/ports/unix/main.c
+index db50e12..af63325 100644
+--- a/ports/unix/main.c
++++ b/ports/unix/main.c
+@@ -746,7 +746,13 @@ MP_NOINLINE int main_(int argc, char **argv) {
+             ret = do_repl();
+             prompt_write_history();
+         } else {
++            #ifdef MICROPY_GODO_BOOT
++            // godo speaks a protocol on stdin, so stdin is not a script to
++            // read. With nothing to run, hand control to the frozen shim.
++            ret = do_str(MICROPY_GODO_BOOT);
++            #else
+             ret = execute_from_lexer(LEX_SRC_STDIN, NULL, MP_PARSE_FILE_INPUT, false);
++            #endif
+         }
+     }
+ 
+diff --git a/ports/unix/variants/wasi/mpconfigvariant.h b/ports/unix/variants/wasi/mpconfigvariant.h
+index 390926d..472a68c 100644
+--- a/ports/unix/variants/wasi/mpconfigvariant.h
++++ b/ports/unix/variants/wasi/mpconfigvariant.h
+@@ -40,3 +40,7 @@
+ 
+ // Enable extra Unix features.
+ #include "../mpconfigvariant_common.h"
++
++// godo-micropy: with no script argument, run the frozen shim instead of
++// reading one from stdin. stdin carries godo's protocol.
++#define MICROPY_GODO_BOOT "import godo_shim"
+diff --git a/ports/unix/variants/wasi/mpconfigvariant.mk b/ports/unix/variants/wasi/mpconfigvariant.mk
+index b810b3a..45d016d 100644
+--- a/ports/unix/variants/wasi/mpconfigvariant.mk
++++ b/ports/unix/variants/wasi/mpconfigvariant.mk
+@@ -18,8 +18,8 @@ CC = $(CLANG) --sysroot $(WASI_SYSROOT) -resource-dir $(RESOURCE_DIR)
+ STRIP = $(WASI_SDK)/bin/strip
+ SIZE = $(WASI_SDK)/bin/size
+ 
+-CFLAGS += --target=wasm32-wasi -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN -mllvm -wasm-enable-sjlj
+-LDFLAGS += --target=wasm32-wasi -lwasi-emulated-process-clocks -lwasi-emulated-signal -lwasi-emulated-mman -lsetjmp -B $(WASI_SDK)/bin/
++CFLAGS += --target=wasm32-wasip1 -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN -mllvm -wasm-enable-sjlj
++LDFLAGS += --target=wasm32-wasip1 -lwasi-emulated-process-clocks -lwasi-emulated-signal -lwasi-emulated-mman -lsetjmp -B $(WASI_SDK)/bin/
+ 
+ # WASI doesn't have FFI
+ MICROPY_PY_FFI = 0

@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: WASI toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld binaryen
+          # wasi-sdk carries a matched clang and sysroot; the distro packages
+          # do not agree on layout across releases.
+          curl -sSL -o /tmp/wasi-sdk.tar.gz \
+            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz
+          sudo mkdir -p /opt && sudo tar -xzf /tmp/wasi-sdk.tar.gz -C /opt
+          sudo mv /opt/wasi-sdk-25.0-x86_64-linux /opt/wasi-sdk-25.0
+
+      - name: Build
+        env:
+          WASI_SYSROOT: /opt/wasi-sdk-25.0/share/wasi-sysroot
+        run: |
+          export WASI_RESOURCE_DIR="$(/opt/wasi-sdk-25.0/bin/clang --print-resource-dir)"
+          export PATH="/opt/wasi-sdk-25.0/bin:$PATH"
+          ./scripts/build.sh
+
+      - name: The artifact is a WASI command and nothing more
+        run: |
+          # A plugin that imports anything but WASI is coupled to some other
+          # host and will not run under godo.
+          python3 - <<'PY'
+          import sys
+          data = open("godo-micropy.wasm", "rb").read()
+          assert data[:4] == b"\x00asm", "not a wasm module"
+          i, mods = 8, set()
+          def u(b, i):
+              r = s = 0
+              while True:
+                  x = b[i]; i += 1; r |= (x & 0x7f) << s
+                  if not x & 0x80: return r, i
+                  s += 7
+          while i < len(data):
+              sid = data[i]; i += 1
+              n, j = u(data, i)
+              if sid == 2:
+                  count, k = u(data, j)
+                  for _ in range(count):
+                      ln, k = u(data, k)
+                      mods.add(data[k:k+ln].decode()); k += ln
+                      ln, k = u(data, k); k += ln
+                      kind = data[k]; k += 1
+                      _, k = u(data, k)
+                      if kind in (1, 2, 3): k += 1 if kind != 1 else 0
+              i = j + n
+          print("imports from:", sorted(mods))
+          assert mods <= {"wasi_snapshot_preview1"}, f"unexpected imports: {mods}"
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: godo-micropy.wasm
+          path: |
+            godo-micropy.wasm
+            LICENSE
+            THIRD_PARTY_LICENSES.md
