@@ -13,7 +13,14 @@ jobs:
       - name: WASI toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld binaryen
+          sudo apt-get install -y clang lld
+          # Not apt's binaryen: it lags well behind 117, and --spill-pointers
+          # is missing there — which the build only discovers after compiling
+          # everything.
+          curl -sSL -o /tmp/binaryen.tar.gz \
+            https://github.com/WebAssembly/binaryen/releases/download/version_132/binaryen-version_132-x86_64-linux.tar.gz
+          sudo tar -xzf /tmp/binaryen.tar.gz -C /opt
+          echo "/opt/binaryen-version_132/bin" >> "$GITHUB_PATH"
           # wasi-sdk carries a matched clang and sysroot; the distro packages
           # do not agree on layout across releases.
           curl -sSL -o /tmp/wasi-sdk.tar.gz \

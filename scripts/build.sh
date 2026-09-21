@@ -14,6 +14,15 @@ for t in clang wasm-opt wasm-ld; do
   command -v "$t" >/dev/null || { echo "missing: $t — see README" >&2; exit 1; }
 done
 
+# binaryen below 117 has no --spill-pointers, and finds out about it after
+# compiling everything. Distro packages are often older than that.
+BINARYEN_VERSION="$(wasm-opt --version | grep -oE '[0-9]+' | head -1)"
+if [ "${BINARYEN_VERSION:-0}" -lt 117 ]; then
+  echo "wasm-opt is binaryen $BINARYEN_VERSION; 117 or newer is required" >&2
+  echo "  (--spill-pointers and --translate-to-exnref came later)" >&2
+  exit 1
+fi
+
 LLVM="$(dirname "$(dirname "$(command -v clang)")")"
 SYSROOT="${WASI_SYSROOT:?set WASI_SYSROOT}"
 RESOURCES="${WASI_RESOURCE_DIR:?set WASI_RESOURCE_DIR}"
