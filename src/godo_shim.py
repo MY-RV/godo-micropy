@@ -1,16 +1,18 @@
-# godo-micropy: el shim.
+# godo-micropy: the shim.
 #
-# Corre dentro de micropython.wasm. Lee la peticion de godo por stdin, arma el
-# objeto `godo`, y ejecuta el cuerpo del script.
+# Runs inside micropython.wasm. Reads godo's request from stdin, builds the
+# `godo` namespace, and executes the script body.
 #
-# stdout es el canal del protocolo, asi que sys.stdout se reemplaza: lo que el
-# script imprima viaja como un op, no se mezcla con los ops de godo.
+# stdout carries the protocol, so a script's print() cannot go there: it would
+# interleave with the ops and corrupt them. print is replaced instead, because
+# MicroPython's built-in modules are read-only and sys.stdout cannot be
+# reassigned.
 
 import sys
 import json
 
 _API = 1
-_raw = sys.stdout          # el canal del protocolo, antes de reemplazarlo
+_raw = sys.stdout  # the protocol channel, kept before anything shadows it
 
 
 def _send(obj):
@@ -21,16 +23,16 @@ def _send(obj):
 def _recv():
     line = sys.stdin.readline()
     if not line:
-        raise Exception("godo cerro la conexion")
+        raise Exception("godo closed the connection")
     return json.loads(line)
 
 
 def _print(*a, **k):
-    """El print del script: cada linea sale como un op.
+    """The script's print: every line leaves as an op.
 
-    MicroPython no deja reasignar sys.stdout (los modulos built-in son de solo
-    lectura), asi que se inyecta este print en los globals del script. stdout
-    queda intacto para el protocolo.
+    Injected into the script's globals rather than installed over sys.stdout,
+    which MicroPython does not allow. A script writing to sys.stdout directly
+    would still corrupt the protocol; nothing can stop that from in here.
     """
     sep = k.get("sep", " ")
     end = k.get("end", "\n")
@@ -40,16 +42,20 @@ def _print(*a, **k):
 
 
 class Argv:
-    """Captures de la key del matcher."""
+    """Captures bound by the matcher key.
+
+    Mirrors ${godo:argv[NAME]} in a shell body. Fails closed: an unbound name
+    raises rather than reading as an empty string.
+    """
 
     def __init__(self, d):
         self._d = d
 
     def __getitem__(self, k):
         if not isinstance(k, str):
-            raise TypeError("godo.argv se indexa por nombre; usa godo.args para posicionales")
+            raise TypeError("godo.argv is keyed by capture name; use godo.args for positionals")
         if k not in self._d:
-            raise KeyError("capture %r no ligado por el match" % k)
+            raise KeyError("capture %r was not bound by this match" % k)
         return self._d[k]
 
     def __contains__(self, k):
@@ -60,14 +66,18 @@ class Argv:
 
 
 class Args:
-    """Tokens sobrantes tras el match."""
+    """Tokens left over after the match.
+
+    Mirrors ${godo:args[i]}. A plugin body always accepts leftovers: it is a
+    program, so what they mean is its own business.
+    """
 
     def __init__(self, lst):
         self._l = lst
 
     def __getitem__(self, k):
         if isinstance(k, str):
-            raise TypeError("godo.args es posicional; usa godo.argv para captures")
+            raise TypeError("godo.args is positional; use godo.argv for captures")
         return self._l[k]
 
     def __len__(self):
@@ -78,15 +88,31 @@ class Args:
 
 
 class Result:
-    def __init__(self, d):
+    """What a command did. Errors are values here, not exceptions.
+
+    stdout and stderr are strings when capture was asked for and None when it
+    was not — including when the command printed nothing. The wire omits an
+    empty string, so the side that knows what it asked for fills it back in;
+    a captured silence is "" and must not read as "nothing was captured".
+    """
+
+    def __init__(self, d, capture):
         self.code = d.get("code", 0)
         self.ok = d.get("ok", False)
-        self.stdout = d.get("stdout")
-        self.stderr = d.get("stderr")
+        self.stdout = d.get("stdout", "") if capture else None
+        self.stderr = d.get("stderr", "") if capture else None
 
 
 class Proc:
     def exec(self, argv, cwd=None, capture=False, check=True):
+        """Run a command and wait.
+
+        check=True (the default) aborts the script on a non-zero exit, and godo
+        leaves with the child's code. check=False hands back the Result so the
+        script can decide — which is what replaces try/except for commands.
+
+        Needs config.proc.exec.
+        """
         op = {"op": "exec", "argv": list(argv)}
         if cwd:
             op["dir"] = cwd
@@ -96,7 +122,7 @@ class Proc:
         d = _recv()
         if d.get("error"):
             raise Exception(d["error"])
-        r = Result(d)
+        r = Result(d, capture)
         if check and not r.ok:
             sys.exit(r.code)
         return r
@@ -104,6 +130,14 @@ class Proc:
 
 class Fs:
     def slink(self, src, dst, force=False):
+        """Link src to dst: a symlink on Unix, a junction on Windows.
+
+        The one filesystem operation a mounted directory does not solve, since
+        os.symlink is not portable. Everything else — paths, reading, writing,
+        listing — is Python's own library.
+
+        Needs config.fs.slink. Windows is unverified.
+        """
         _send({"op": "slink", "src": src, "dst": dst, "force": bool(force)})
         d = _recv()
         if d.get("error"):
@@ -122,7 +156,9 @@ class Godo:
 def main():
     req = _recv()
     if req.get("api") != _API:
-        sys.stderr.write("godo-micropy habla api %d, godo habla %s\n" % (_API, req.get("api")))
+        sys.stderr.write(
+            "godo-micropy speaks api %d, godo speaks %s\n" % (_API, req.get("api"))
+        )
         sys.exit(1)
 
     godo = Godo(req)
@@ -132,9 +168,9 @@ def main():
     except SystemExit:
         raise
     except Exception as e:
-        # Explicito: print_exception de MicroPython escribe a stdout por
-        # defecto, y stdout es el canal del protocolo. El traceback va a
-        # stderr, que godo pasa tal cual.
+        # Explicit: MicroPython's print_exception writes to stdout by default,
+        # and stdout is the protocol. The traceback belongs on stderr, which
+        # godo passes through untouched.
         sys.print_exception(e, sys.stderr)
         sys.exit(1)
     sys.exit(0)

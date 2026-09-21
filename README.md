@@ -93,6 +93,10 @@ if not r.ok:
     ...            # r.code, r.stdout, r.stderr
 ```
 
+`stdout` and `stderr` are strings when you asked for `capture=True` — including
+`""` when the command printed nothing — and `None` when you did not. A captured
+silence is not the same as nothing captured.
+
 `raise` aborts with a traceback and exit 1.
 
 ## Capabilities
@@ -189,7 +193,10 @@ godo -e plugins install https://github.com/MY-RV/godo-micropy/releases/download/
 godo -e plugins install ./godo-micropy.wasm
 ```
 
-Either writes the entry, with the digest, into your `godo.yaml`. A teammate who
+Either writes the entry, with the digest, into your `godo.yaml`. Installing over
+a plugin the catalog already declares updates that entry and **keeps its
+`config`**: what a plugin may do is your decision, and install has no business
+re-granting what you took away. A teammate who
 clones the repository runs `godo -e plugins install` with no arguments: it
 fetches what the catalog declares and refuses anything whose bytes do not match
 the committed digest.

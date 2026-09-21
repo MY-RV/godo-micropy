@@ -11,6 +11,11 @@
   [pull request #13676](https://github.com/micropython/micropython/pull/13676)
   and not merged upstream. `scripts/build.sh` pins it.
 
+### Fixed
+- `capture=True` on a command that printed nothing gave `None` instead of `""`.
+  The wire omits an empty string, so the shim fills it back in: it knows what
+  it asked for.
+
 ### Notes
 - The build is **not reproducible**: MicroPython embeds its build date, so two
   builds of the same source differ. A digest identifies the artifact that was
