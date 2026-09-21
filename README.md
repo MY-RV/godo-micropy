@@ -66,6 +66,7 @@ Four things. Everything else is Python.
 godo.argv["BRANCH"]                  # captures from the matcher key
 godo.args[0]                         # tokens left over after the match
 godo.proc.exec(argv, cwd=None, capture=False, check=True)
+godo.net.get(url, headers=None, timeout=None)
 godo.fs.slink(src, dst, force=False)
 ```
 
@@ -81,6 +82,34 @@ What stays is what Python cannot answer for itself:
 | `argv` / `args` | values godo binds at invocation; they are not in the file |
 | `proc.exec` | there is no `subprocess` inside the sandbox |
 | `fs.slink` | `os.symlink` is not portable — Unix wants a symlink, Windows a junction |
+
+### The network
+
+A wasm guest has no sockets, so `godo.net` is not a convenience over `socket` —
+it is the only way out. Going through godo rather than exec'ing `curl` is the
+difference between a script that runs anywhere and one that runs wherever
+somebody happened to install a tool.
+
+```python
+r = godo.net.get("https://api.github.com/repos/MY-RV/godo/releases/latest",
+                 headers={"Accept": "application/vnd.github+json"})
+if r.ok:
+    print(r.json()["tag_name"])
+
+# Bodies are bytes, so an image is an image.
+png = godo.net.get("https://example.com/logo.png")
+with open("logo.png", "wb") as f:
+    f.write(png.content)
+```
+
+`r.status`, `r.ok`, `r.text`, `r.content`, `r.headers`, `r.json()`. A non-2xx is
+a status you read, not an exception. Requests time out after 30 seconds unless
+`timeout=` says otherwise.
+
+Redirects and gzip are handled. **Multipart, cookies, streaming and client
+certificates are not** — those are `godo.proc.exec(["curl", …])`, with the
+dependency on `curl` that implies. The line is deliberate: what is portable
+lives here, what needs a real HTTP client stays a program.
 
 ### Errors are values, not exceptions
 

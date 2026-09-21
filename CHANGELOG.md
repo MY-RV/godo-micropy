@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] — 2026-09-21
+
+### Added
+- **`godo.net`** — HTTP through godo, which makes the request with Go's client.
+  A wasm guest has no sockets, so the alternative was exec'ing `curl` and
+  depending on what a machine happens to carry. `get`, `post`, `request`, with
+  headers, body and `timeout=`. `r.status`, `r.ok`, `r.text`, `r.content`,
+  `r.headers`, `r.json()`.
+  Bodies are bytes: `r.content` on an image is the image. Not supported:
+  multipart, cookies, streaming, client certificates — those stay `exec`.
+  Needs godo with the `fetch` op.
+
 ## [0.2.0] — 2026-09-21
 
 ### Added

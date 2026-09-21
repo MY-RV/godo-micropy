@@ -128,6 +128,68 @@ class Proc:
         return r
 
 
+class Response:
+    """An HTTP response. A status is a value, not an exception.
+
+    The body arrives base64-encoded because it is bytes: carrying it as a JSON
+    string would replace anything that is not valid UTF-8, and an image would
+    come out shorter than it left with nothing raised.
+    """
+
+    def __init__(self, d):
+        import binascii
+
+        self.status = d.get("code", 0)
+        self.ok = d.get("ok", False)
+        self.headers = d.get("headers") or {}
+        self.content = binascii.a2b_base64(d.get("base64", ""))
+
+    @property
+    def text(self):
+        return self.content.decode()
+
+    def json(self):
+        import json as _json
+
+        return _json.loads(self.text)
+
+
+class Net:
+    """The network, reached through godo.
+
+    A wasm guest has no sockets, so this is not a convenience over `socket` —
+    it is the only way out. Going through godo rather than exec'ing curl is the
+    difference between a script that runs anywhere and one that runs wherever
+    somebody happened to install a tool.
+
+    Named net rather than http because that is the shape of the thing: if a
+    socket ever arrives it belongs here, not beside here.
+    """
+
+    def request(self, method, url, headers=None, body=None, check=False, timeout=None):
+        op = {"op": "fetch", "url": url, "method": method}
+        if headers:
+            op["headers"] = headers
+        if body is not None:
+            op["body"] = body
+        if timeout:
+            op["timeout"] = int(timeout)
+        _send(op)
+        d = _recv()
+        if d.get("error"):
+            raise Exception(d["error"])
+        r = Response(d)
+        if check and not r.ok:
+            raise Exception("%s %s -> %d" % (method, url, r.status))
+        return r
+
+    def get(self, url, headers=None, check=False, timeout=None):
+        return self.request("GET", url, headers, None, check, timeout)
+
+    def post(self, url, body=None, headers=None, check=False, timeout=None):
+        return self.request("POST", url, headers, body, check, timeout)
+
+
 class Fs:
     def slink(self, src, dst, force=False):
         """Link src to dst: a symlink on Unix, a junction on Windows.
@@ -150,6 +212,7 @@ class Godo:
         self.args = Args(req.get("args") or [])
         self.proc = Proc()
         self.fs = Fs()
+        self.net = Net()
         self.runner = req.get("runner", "")
 
 
